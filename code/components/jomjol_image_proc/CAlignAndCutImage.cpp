@@ -10,6 +10,25 @@
 
 static const char* TAG = "c_align_and_cut_image";
 
+// A misconfigured ROI can place its origin at or beyond the image edge. Without this clamp,
+// x2/y2 (bounded to width-1/height-1 below) can end up below x1/y1, so the crop loop copies
+// nothing and the caller silently gets whatever was already sitting in the freshly allocated
+// buffer instead of a "ROI out of bounds" error.
+static void ClampROIOrigin(int &x1, int &y1, int width, int height)
+{
+    int orig_x1 = x1;
+    int orig_y1 = y1;
+    x1 = std::max(0, std::min(x1, width - 1));
+    y1 = std::max(0, std::min(y1, height - 1));
+    if ((x1 != orig_x1) || (y1 != orig_y1))
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "CutAndSave: ROI origin (" + std::to_string(orig_x1) + "," +
+                             std::to_string(orig_y1) + ") is outside the image (" + std::to_string(width) + "x" +
+                             std::to_string(height) + ") - clamped to (" + std::to_string(x1) + "," +
+                             std::to_string(y1) + "). Check the ROI configuration.");
+    }
+}
+
 CAlignAndCutImage::CAlignAndCutImage(std::string _name, CImageBasis *_org, CImageBasis *_temp) : CImageBasis(_name)
 {
     name = _name;
@@ -100,6 +119,8 @@ void CAlignAndCutImage::CutAndSave(std::string _template1, int x1, int y1, int d
 
     int x2, y2;
 
+    ClampROIOrigin(x1, y1, width, height);
+
     x2 = x1 + dx;
     y2 = y1 + dy;
     x2 = std::min(x2, width - 1);
@@ -141,6 +162,8 @@ void CAlignAndCutImage::CutAndSave(int x1, int y1, int dx, int dy, CImageBasis *
 {
     int x2, y2;
 
+    ClampROIOrigin(x1, y1, width, height);
+
     x2 = x1 + dx;
     y2 = y1 + dy;
     x2 = std::min(x2, width - 1);
@@ -178,6 +201,8 @@ void CAlignAndCutImage::CutAndSave(int x1, int y1, int dx, int dy, CImageBasis *
 CImageBasis* CAlignAndCutImage::CutAndSave(int x1, int y1, int dx, int dy)
 {
     int x2, y2;
+
+    ClampROIOrigin(x1, y1, width, height);
 
     x2 = x1 + dx;
     y2 = y1 + dy;

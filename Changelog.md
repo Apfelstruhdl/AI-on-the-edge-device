@@ -1,3 +1,9 @@
+# [Unreleased]
+
+### Core Changes and Bug fixes
+- Fixed a bug where an ROI positioned at or beyond the image border produced silent noise instead of a clear error: `CAlignAndCutImage::CutAndSave` now clamps the ROI origin into the image bounds and logs a warning when it has to
+
+
 # [16.1.0] - 2026-01-11
 
 For a full list of changes see [Full list of changes](https://github.com/jomjol/AI-on-the-edge-device/compare/v16.0.0...v16.1.0)
