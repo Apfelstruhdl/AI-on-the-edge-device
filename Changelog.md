@@ -3,6 +3,7 @@
 ### Core Changes and Bug fixes
 - Added opt-in history-anchored post-processing reconciliation (`HistoryReconcile`, with `HistoryMaxJump`) that fixes premature analog-dial transitions (single-frame ±1 dial flips) and values getting stuck at digit rollovers, by trusting the reading on unambiguous frames and gating a most-significant analog-dial carry on an observed wrap of the dial below it [#4112](https://github.com/jomjol/AI-on-the-edge-device/issues/4112)
 - `HistoryReconcile` is now preserved by the config editor (previously silently dropped on every ROI/alignment save) and is directly editable in the expert config page
+- The `AntiAliasing` alignment option is now preserved by the config editor (previously silently dropped on every ROI/alignment save) and is directly editable in the expert config page
 - Fixed a bug where an ROI positioned at or beyond the image border produced silent noise instead of a clear error: `CAlignAndCutImage::CutAndSave` now clamps the ROI origin into the image bounds and logs a warning when it has to
 
 
