@@ -5,6 +5,7 @@
 - `HistoryReconcile` is now preserved by the config editor (previously silently dropped on every ROI/alignment save) and is directly editable in the expert config page
 - The `AntiAliasing` alignment option is now preserved by the config editor (previously silently dropped on every ROI/alignment save) and is directly editable in the expert config page
 - Fixed a bug where an ROI positioned at or beyond the image border produced silent noise instead of a clear error: `CAlignAndCutImage::CutAndSave` now clamps the ROI origin into the image bounds and logs a warning when it has to
+- Fixed `checkDigitConsistency` corrupting the sub-digit part of large readings: it computed in `double` but returned `float`, so once a meter passed ~1,000,000 (7+ significant digits) the narrowing to 32-bit float mangled the decimals (e.g. a reading of `…691.67` was published as `…691.75`). The function now returns `double` and uses a `double` working variable throughout.
 
 
 # [16.1.0] - 2026-01-11
