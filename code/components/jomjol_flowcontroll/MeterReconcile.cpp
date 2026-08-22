@@ -108,8 +108,16 @@ ReconcileResult reconcileStep(ReconcileState& st, double candidate,
         }
         // Recovery: if the value has been held for a sustained stretch it was genuinely stuck
         // (not flickering), so on a clean frame with a stable recognition trust the reading and
-        // re-anchor across the carry (handles multi-step catch-up and wrong-anchor healing).
-        if (clean && stable && st.held >= p.recoverHolds) {
+        // re-anchor across the carry (heals an anchor left behind by a missed carry).
+        //
+        // Bounded by recoverMaxSteps: "clean and stable for a while" is NOT evidence that a
+        // far-away reading is right - a digit misread one position ahead sits perfectly clean and
+        // stable for as long as the meter is idle, and recovering onto it replaces a correct value
+        // with one a full digit out. Beyond the cap, keep holding: a frozen value is visible and
+        // costs nothing, a poisoned anchor silently corrupts every later total.
+        const long absSteps = steps < 0 ? -steps : steps;
+        if (clean && stable && st.held >= p.recoverHolds &&
+            (p.recoverMaxSteps <= 0 || absSteps <= (long) p.recoverMaxSteps)) {
             return accept(st, candidate);
         }
         return hold(st);

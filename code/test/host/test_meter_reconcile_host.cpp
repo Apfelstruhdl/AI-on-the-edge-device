@@ -209,9 +209,11 @@ int main() {
         ReconcileState st = anchoredAt(500000.0, pq);
         ReconcileResult r = reconcileStep(st, 900000.0, /*clean*/true, /*wrap*/false, pq); // huge carry
         check("huge carry still held (gate applies)", r.value, 500000.0);
+        // Removing the ceiling does NOT open the recovery path: recoverMaxSteps bounds it
+        // independently, so a wildly-off reading stays held however long it persists.
         for (int i = 0; i < pq.recoverHolds; ++i) reconcileStep(st, 900000.0, false, false, pq);
-        r = reconcileStep(st, 900000.0, /*clean*/true, false, pq);   // sustained hold -> recover
-        check("recovery accepts once stuck (no ceiling)", r.value, 900000.0);
+        r = reconcileStep(st, 900000.0, /*clean*/true, false, pq);   // sustained hold, still capped
+        check("no ceiling still does not uncap recovery", r.value, 500000.0);
     }
 
     printf("R: a wrap seen one frame before the valid carry still accepts (sticky wrap)\n");
@@ -272,6 +274,48 @@ int main() {
         r = reconcileStep(st, 500320.0, /*clean*/true, /*wrap*/false, p);  // stable -> recover
         check("stable candidate recovers", r.value, 500320.0);
         checkAction("stable recovery -> ACCEPT", r.action, RA_ACCEPT);
+    }
+
+    printf("X: stuck-recovery is bounded - a far-away clean, stable misread is not recovered onto\n");
+    {
+        // The field failure this guards (issue #4112): the last whole-unit digit reads one ahead,
+        // i.e. +1000 == 10 msb steps, and sits perfectly clean and stable for hours while the meter
+        // is idle. Well under maxJump, so only the step cap can reject it.
+        ReconcileState st = anchoredAt(500200.0, p);
+        ReconcileResult r;
+        for (int i = 0; i < 30; ++i) {              // far beyond recoverHolds
+            r = reconcileStep(st, 501200.0, /*clean*/true, /*wrap*/false, p);
+        }
+        check("digit-ahead misread never recovered onto", r.value, 500200.0);
+        checkAction("far misread -> HOLD", r.action, RA_HOLD);
+    }
+
+    printf("Y: the cap still allows the single-step healing that recovery exists for\n");
+    {
+        ReconcileState st = anchoredAt(500200.0, p);
+        ReconcileResult r;
+        for (int i = 0; i < 7; ++i) {
+            r = reconcileStep(st, 500320.0, /*clean*/true, /*wrap*/false, p);   // 1 step
+        }
+        check("one-step recovery still works", r.value, 500320.0);
+
+        ReconcileState st2 = anchoredAt(500200.0, p);
+        for (int i = 0; i < 7; ++i) {
+            r = reconcileStep(st2, 500420.0, /*clean*/true, /*wrap*/false, p);  // 2 steps
+        }
+        check("two-step recovery refused by default cap", r.value, 500200.0);
+    }
+
+    printf("Z: recoverMaxSteps <= 0 restores the unbounded behaviour\n");
+    {
+        ReconcileParams q = p;
+        q.recoverMaxSteps = 0;                      // cap disabled
+        ReconcileState st = anchoredAt(500200.0, q);
+        ReconcileResult r;
+        for (int i = 0; i < 7; ++i) {
+            r = reconcileStep(st, 501200.0, /*clean*/true, /*wrap*/false, q);
+        }
+        check("uncapped recovery accepts the far jump", r.value, 501200.0);
     }
 
     printf("\n==== %d passed, %d failed ====\n", g_pass, g_fail);

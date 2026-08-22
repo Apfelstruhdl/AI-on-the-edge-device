@@ -25,7 +25,9 @@
 //     and, on an ambiguous frame, allows forward motion while tolerating only sub-noise backward;
 //   - re-anchors across a carry without wrap evidence only as *recovery*: after the value has
 //     been held for a sustained stretch on a clean frame with a stable recognition (genuinely
-//     stuck, not flickering or a wandering misread);
+//     stuck, not flickering or a wandering misread) AND only across a bounded number of steps -
+//     staying clean and stable says nothing about a reading that is a whole digit out, and
+//     recovering onto one would replace a correct value with a badly wrong anchor;
 //   - never accepts a physically impossible single-frame jump (maxJump); holds instead of guessing.
 //
 // This is an opt-in layer. The digit-chain zero-crossing handling (CheckDigitIncreaseConsistency)
@@ -44,6 +46,14 @@ struct ReconcileParams {
     double msbStep;       // value units represented by one full step of the most-significant analog dial
     double noiseTol;      // small downward tolerance for jitter (value units); should scale with resolution
     int    recoverHolds;  // consecutive holds before a clean, stable carry is accepted as stuck-recovery
+    int    recoverMaxSteps; // most-significant-dial steps a stuck-recovery may re-anchor across; <= 0
+                          // disables the cap. Without it, a misread that merely stays clean and
+                          // stable long enough is re-anchored to NO MATTER HOW FAR it is wrong (up
+                          // to maxJump), which is how a stuck-but-correct value gets replaced by a
+                          // badly wrong one. Recovery exists to heal an anchor that is off by a
+                          // missed carry, so one step is enough; a value that is wrong by more is
+                          // left held (loud and harmless) for the PreValueAgeStartup re-seed or a
+                          // manual PreValue, rather than silently poisoning the total.
     int    wrapWindow;    // frames an observed lower-dial wrap keeps justifying a single-step carry
     float  band;          // a dial within this distance of an integer is "near a boundary".
                           // INVARIANT: keep >= the recognition chain's own ambiguity band
@@ -54,7 +64,8 @@ struct ReconcileParams {
     // Defaults are conservative; the firmware derives msbStep / noiseTol / maxJump from the
     // meter's decimal scaling each frame (see ClassFlowPostProcessing).
     ReconcileParams()
-        : maxJump(-1.0), msbStep(0.0), noiseTol(0.0), recoverHolds(5), wrapWindow(3), band(0.30f) {}
+        : maxJump(-1.0), msbStep(0.0), noiseTol(0.0), recoverHolds(5), recoverMaxSteps(1),
+          wrapWindow(3), band(0.30f) {}
 };
 
 struct ReconcileState {
