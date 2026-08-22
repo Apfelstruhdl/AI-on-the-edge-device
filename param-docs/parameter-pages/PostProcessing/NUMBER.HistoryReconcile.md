@@ -19,8 +19,10 @@ whether to accept the recognised value or hold the previous one:
 - Motion *within* a dial step is trusted on a clean frame; on an ambiguous frame forward motion is
   allowed while only sub-noise backward jitter is tolerated.
 - As recovery, a clean carry is accepted once the value has been held for a sustained stretch
-  (genuinely stuck, not merely flickering) — this self-heals a stuck value and absorbs a legitimate
-  catch-up after a gap.
+  (genuinely stuck, not merely flickering) — this self-heals a value left behind by a missed carry.
+  Recovery is limited to a single dial step: a reading that is further out than that is left held
+  instead, because staying clean and stable is no evidence that a reading a whole digit away is
+  correct.
 - A physically impossible single-cycle jump (see `HistoryMaxJump`) is never accepted.
 
 This is most useful for meters with "early transition" dials, where a pointer (or digit) flips
@@ -42,9 +44,14 @@ It has no effect on sequences without analog ROIs.
     genuine carry is observed, so it does not stay stuck once the dials move on. The thresholds
     (`maxJump`, the backward-jitter tolerance, and the gross-misread ceiling) are derived from the
     meter's decimal scaling, and the "near a boundary" margin is a built-in default sized to the
-    analog recognition scatter. As a final safety net, a value that is wrong by more than `maxJump`
-    (a rare gross corruption) is recovered by the normal `PreValueAgeStartup` re-seed rather than
-    silently persisting.
+    analog recognition scatter.
+
+    Recovery deliberately will **not** jump onto a reading that is more than one dial step away,
+    even if that reading looks clean and stays steady for hours — a digit that reads one position
+    ahead does exactly that while the meter is idle, and re-anchoring onto it would silently put the
+    total a whole digit out. Such a value keeps being held, which is visible (the reading stops
+    advancing and `value` diverges from `raw`) and harmless to the totals; it is then resolved by the
+    normal `PreValueAgeStartup` re-seed or by setting the pre-value from the meter face.
 
 !!! Note
     If you edit the config file manually, you must prefix this parameter with `<NUMBER>` followed by a dot (eg. `main.HistoryReconcile`). The reason is that this parameter is specific for each `<NUMBER>` (`<NUMBER>` is the name of the number sequence defined in the ROI's).

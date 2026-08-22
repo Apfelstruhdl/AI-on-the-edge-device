@@ -3,6 +3,7 @@
 ### Core Changes and Bug fixes
 - Added opt-in history-anchored post-processing reconciliation (`HistoryReconcile`, with `HistoryMaxJump`) that fixes premature analog-dial transitions (single-frame ±1 dial flips) and values getting stuck at digit rollovers, by trusting the reading on unambiguous frames and gating a most-significant analog-dial carry on an observed wrap of the dial below it [#4112](https://github.com/jomjol/AI-on-the-edge-device/issues/4112)
 - `HistoryReconcile` is now preserved by the config editor (previously silently dropped on every ROI/alignment save) and is directly editable in the expert config page
+- `HistoryReconcile`: the stuck-recovery path is now limited to a single dial step, so a misread that merely stays clean and stable long enough (e.g. a digit reading one position ahead while the meter is idle) can no longer be re-anchored onto and put the total a whole digit out
 
 
 # [16.1.0] - 2026-01-11
