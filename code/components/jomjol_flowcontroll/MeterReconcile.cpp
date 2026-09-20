@@ -124,14 +124,27 @@ ReconcileResult reconcileStep(ReconcileState& st, double candidate,
     }
 
     // No carry (candidate is in the same most-significant-dial bucket as confirmed).
-    if (clean) {
-        return accept(st, candidate);       // absolute reading is trustworthy this frame
+    //
+    // Backward motion beyond the noise tolerance. A mechanical counter cannot run backwards, so
+    // this is a misread - unless the anchor ITSELF is wrong, and re-anchoring down is then the only
+    // way back, because the meter can never climb to meet a too-high anchor. So the move is allowed
+    // but must clear the same evidence bar as the stuck-recovery above: genuinely stuck (held for a
+    // sustained stretch), not merely flickering.
+    //
+    // A clean frame is deliberately NOT sufficient on its own. "Clean" only means no dial sits near
+    // an integer, and a dial misread by nearly a whole step sits comfortably clean - which is
+    // exactly how a backward jump of almost a full dial step gets in. Such a jump stays inside one
+    // most-significant-dial bucket, so the carry gate never sees it either.
+    if (delta < -p.noiseTol) {
+        if (clean && stable && st.held >= p.recoverHolds) {
+            return accept(st, candidate);   // genuinely stuck too high -> re-anchor downwards
+        }
+        return hold(st);
     }
-    // Ambiguous, no carry: forward motion ok; tolerate only sub-noise backward jitter.
-    if (delta >= -p.noiseTol) {
-        return accept(st, candidate);
-    }
-    return hold(st);
+
+    // Forward, or backward within the noise tolerance: trustworthy on a clean frame, and ordinary
+    // forward motion is fine on an ambiguous one too.
+    return accept(st, candidate);
 }
 
 } // namespace meter

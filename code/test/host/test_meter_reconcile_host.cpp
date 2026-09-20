@@ -318,6 +318,67 @@ int main() {
         check("uncapped recovery accepts the far jump", r.value, 501200.0);
     }
 
+    printf("AA: a large backward jump INSIDE one dial step is held, even on a clean frame  [key fix]\n");
+    {
+        // Observed in the field: the anchor sat at ...697.48 and a single frame came back at
+        // ...605.44 - a 92 unit drop that stays inside the SAME most-significant-dial bucket, so
+        // the carry gate never sees it (steps == 0). The frame looked clean, and the old no-carry
+        // path trusted any clean reading outright, so the meter silently ran backwards by nearly a
+        // full dial step and then stuck there.
+        ReconcileState st = anchoredAt(500697.48, p);
+        ReconcileResult r = reconcileStep(st, 500605.44, /*clean*/true, /*wrap*/false, p);
+        check("clean in-bucket backward jump held", r.value, 500697.48);
+        checkAction("-> HOLD", r.action, RA_HOLD);
+    }
+
+    printf("AB: sub-noise backward jitter is still tolerated\n");
+    {
+        // Values kept inside one msb bucket, so this exercises the no-carry path rather than
+        // slipping across a bucket boundary into the carry gate.
+        ReconcileState st = anchoredAt(500550.0, p);
+        ReconcileResult r = reconcileStep(st, 500549.0, /*clean*/true, /*wrap*/false, p);
+        check("clean jitter within noiseTol accepted", r.value, 500549.0);
+        r = reconcileStep(st, 500548.5, /*clean*/false, /*wrap*/false, p);
+        check("ambiguous jitter within noiseTol accepted", r.value, 500548.5);
+    }
+
+    printf("AC: a genuinely too-high anchor still heals, after sustained holds\n");
+    {
+        // Healing must survive: if the anchor itself is wrong (poisoned high), the meter can never
+        // climb to meet it, so backward motion is the ONLY way back. It just has to clear the same
+        // evidence bar the carry recovery uses instead of being waved through on one clean frame.
+        ReconcileState st = anchoredAt(500697.48, p);
+        ReconcileResult r;
+        for (int i = 0; i < 6; ++i) {
+            r = reconcileStep(st, 500605.44, /*clean*/true, /*wrap*/false, p);
+            if (i < p.recoverHolds - 1) {
+                check("still held while evidence accumulates", r.value, 500697.48);
+            }
+        }
+        check("re-anchors down once genuinely stuck", r.value, 500605.44);
+    }
+
+    printf("AD: an UNSTABLE backward reading never heals, however long it persists\n");
+    {
+        // A flickering recognition is not a stuck meter - alternating candidates must not be
+        // mistaken for sustained evidence that the anchor is wrong.
+        ReconcileState st = anchoredAt(500697.48, p);
+        ReconcileResult r;
+        for (int i = 0; i < 12; ++i) {
+            r = reconcileStep(st, (i % 2) ? 500605.44 : 500615.44, /*clean*/true, /*wrap*/false, p);
+        }
+        check("flickering backward never re-anchors", r.value, 500697.48);
+    }
+
+    printf("AE: forward motion is unaffected by the backward guard\n");
+    {
+        ReconcileState st = anchoredAt(500500.0, p);
+        ReconcileResult r = reconcileStep(st, 500560.0, /*clean*/true, /*wrap*/false, p);
+        check("clean forward still accepted", r.value, 500560.0);
+        r = reconcileStep(st, 500590.0, /*clean*/false, /*wrap*/false, p);
+        check("ambiguous forward still accepted", r.value, 500590.0);
+    }
+
     printf("\n==== %d passed, %d failed ====\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
