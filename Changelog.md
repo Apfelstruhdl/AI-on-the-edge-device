@@ -2,6 +2,7 @@
 
 ### Core Changes and Bug fixes
 - Fixed a bug where an ROI positioned at or beyond the image border produced silent noise instead of a clear error: `CAlignAndCutImage::CutAndSave` now clamps the ROI origin into the image bounds and logs a warning when it has to
+- Fixed a bug where an ROI overhanging the image border was silently cut to a smaller size and then dropped entirely, leaving the previous crop to be re-read as if it were current: `CAlignAndCutImage::CutAndSave` now moves such an ROI back inside the image so it keeps its configured size, and an ROI that still cannot be cut is reported as a warning instead of a debug message
 
 
 # [16.1.0] - 2026-01-11

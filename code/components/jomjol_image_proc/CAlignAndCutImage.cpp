@@ -10,22 +10,31 @@
 
 static const char* TAG = "c_align_and_cut_image";
 
-// A misconfigured ROI can place its origin at or beyond the image edge. Without this clamp,
-// x2/y2 (bounded to width-1/height-1 below) can end up below x1/y1, so the crop loop copies
-// nothing and the caller silently gets whatever was already sitting in the freshly allocated
-// buffer instead of a "ROI out of bounds" error.
-static void ClampROIOrigin(int &x1, int &y1, int width, int height)
+// A misconfigured ROI can fall outside the image in two ways: its origin can sit at or beyond the
+// edge, or the origin can be legal while the ROI extends past the far edge. Both used to be handled
+// by truncating the crop against width-1/height-1, which silently changes its size: the copy loop
+// then fills fewer pixels than the caller allocated, so the caller either keeps whatever was already
+// in the freshly allocated buffer or - when it pre-sized a target image - drops the ROI entirely.
+//
+// Slide the origin back instead, so the ROI keeps the exact size that was asked for. That is what
+// the recognition models expect, and a ROI shifted by a few pixels is far better than no ROI at all.
+static void FitROIToImage(int &x1, int &y1, int dx, int dy, int width, int height)
 {
-    int orig_x1 = x1;
-    int orig_y1 = y1;
-    x1 = std::max(0, std::min(x1, width - 1));
-    y1 = std::max(0, std::min(y1, height - 1));
+    const int orig_x1 = x1;
+    const int orig_y1 = y1;
+
+    // The callers bound x2/y2 to width-1/height-1, so the last origin that still yields the full
+    // requested size is (width-1)-dx / (height-1)-dy.
+    x1 = std::max(0, std::min(x1, width - 1 - dx));
+    y1 = std::max(0, std::min(y1, height - 1 - dy));
+
     if ((x1 != orig_x1) || (y1 != orig_y1))
     {
-        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "CutAndSave: ROI origin (" + std::to_string(orig_x1) + "," +
-                             std::to_string(orig_y1) + ") is outside the image (" + std::to_string(width) + "x" +
-                             std::to_string(height) + ") - clamped to (" + std::to_string(x1) + "," +
-                             std::to_string(y1) + "). Check the ROI configuration.");
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "CutAndSave: ROI (" + std::to_string(orig_x1) + "," +
+                             std::to_string(orig_y1) + " " + std::to_string(dx) + "x" + std::to_string(dy) +
+                             ") does not fit the image (" + std::to_string(width) + "x" + std::to_string(height) +
+                             ") - moved to (" + std::to_string(x1) + "," + std::to_string(y1) +
+                             "). Check the ROI configuration.");
     }
 }
 
@@ -119,7 +128,7 @@ void CAlignAndCutImage::CutAndSave(std::string _template1, int x1, int y1, int d
 
     int x2, y2;
 
-    ClampROIOrigin(x1, y1, width, height);
+    FitROIToImage(x1, y1, dx, dy, width, height);
 
     x2 = x1 + dx;
     y2 = y1 + dy;
@@ -162,7 +171,7 @@ void CAlignAndCutImage::CutAndSave(int x1, int y1, int dx, int dy, CImageBasis *
 {
     int x2, y2;
 
-    ClampROIOrigin(x1, y1, width, height);
+    FitROIToImage(x1, y1, dx, dy, width, height);
 
     x2 = x1 + dx;
     y2 = y1 + dy;
@@ -174,7 +183,14 @@ void CAlignAndCutImage::CutAndSave(int x1, int y1, int dx, int dy, CImageBasis *
 
     if ((_target->height != dy) || (_target->width != dx) || (_target->channels != channels))
     {
-        ESP_LOGD(TAG, "CAlignAndCutImage::CutAndSave - Image size does not match!");
+        // Skipping the ROI leaves the target holding stale content, which reaches the CNN as if it
+        // were a fresh reading, so this must not stay silent: it is the operator's only clue that a
+        // ROI is producing nothing at all.
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "CutAndSave: ROI cannot be cut to the expected size (" +
+                             std::to_string(_target->width) + "x" + std::to_string(_target->height) + "x" +
+                             std::to_string(_target->channels) + " expected, " + std::to_string(dx) + "x" +
+                             std::to_string(dy) + "x" + std::to_string(channels) +
+                             " available) - ROI skipped. Check the ROI configuration.");
         return;
     }
 
@@ -202,7 +218,7 @@ CImageBasis* CAlignAndCutImage::CutAndSave(int x1, int y1, int dx, int dy)
 {
     int x2, y2;
 
-    ClampROIOrigin(x1, y1, width, height);
+    FitROIToImage(x1, y1, dx, dy, width, height);
 
     x2 = x1 + dx;
     y2 = y1 + dy;
