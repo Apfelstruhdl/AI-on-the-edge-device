@@ -16,8 +16,11 @@ whether to accept the recognised value or hold the previous one:
   frames, because a pointer can be misread part of a step off its true position without landing
   near an integer (so a premature carry could otherwise look "clean"). Otherwise the previous
   value is held. This is what blocks the premature/early dial transitions.
-- Motion *within* a dial step is trusted on a clean frame; on an ambiguous frame forward motion is
-  allowed while only sub-noise backward jitter is tolerated.
+- Forward motion *within* a dial step is trusted on a clean frame, and forward motion is allowed on
+  an ambiguous frame too. Backward motion beyond the noise tolerance is held on **both**, because a
+  mechanical counter cannot run backwards: a frame that reads a dial nearly a whole step low sits
+  "clean" (no dial near an integer) and stays inside one dial step, so neither the cleanliness of
+  the frame nor the carry gate would otherwise catch it.
 - As recovery, a clean carry is accepted once the value has been held for a sustained stretch
   (genuinely stuck, not merely flickering) — this self-heals a value left behind by a missed carry.
   Recovery is limited to a single dial step: a reading that is further out than that is left held
@@ -45,6 +48,11 @@ It has no effect on sequences without analog ROIs.
     (`maxJump`, the backward-jitter tolerance, and the gross-misread ceiling) are derived from the
     meter's decimal scaling, and the "near a boundary" margin is a built-in default sized to the
     analog recognition scatter.
+
+    The same applies to a backward re-anchor: if the previous value is itself too high the meter can
+    never climb to meet it, so moving down is the only way back - but it is allowed only once the
+    value has been held for a sustained stretch with a stable recognition, never on a single frame
+    that happens to look clean.
 
     Recovery deliberately will **not** jump onto a reading that is more than one dial step away,
     even if that reading looks clean and stays steady for hours — a digit that reads one position
