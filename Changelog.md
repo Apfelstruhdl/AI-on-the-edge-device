@@ -1,3 +1,9 @@
+# [Unreleased]
+
+### Core Changes and Bug fixes
+- Fixed a crash (and, after a crash, a boot loop) when the REST API `/json` or `/metrics` is polled before the flow is initialized: both handlers read the post-processing results while they did not exist yet (a NULL pointer) during startup, during the 5-minute init delay that follows any crash, and while `/doinit` rebuilds the flow. They now answer "not yet available" until the flow is initialized, and the underlying accessors no longer dereference a missing post-processing step
+
+
 # [16.1.0] - 2026-01-11
 
 For a full list of changes see [Full list of changes](https://github.com/jomjol/AI-on-the-edge-device/compare/v16.0.0...v16.1.0)
