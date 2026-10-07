@@ -110,7 +110,11 @@ public:
     framesize_t TextToFramesize(const char *text);
 
     esp_err_t CaptureToFile(std::string nm, int delay = 0);
-    esp_err_t CaptureToBasisImage(CImageBasis *_Image, int delay = 0);
+    // verifyFrame: confirm the frame with further captures and replace a corrupted one (see FrameConsistency.h)
+    esp_err_t CaptureToBasisImage(CImageBasis *_Image, int delay = 0, bool verifyFrame = false);
+
+private:
+    void VerifyCapturedFrame(CImageBasis *_Image);
 };
 
 extern CCamera Camera;

@@ -1,3 +1,9 @@
+# [Unreleased]
+
+### Core Changes and Bug fixes
+- Every image a reading is taken from is now checked against a second capture. A marginal camera connection occasionally delivers a torn (a band shifted sideways), truncated (bottom part black) or banded frame that still decodes and can be read as a plausible but wrong value. When the two captures disagree, a third one decides which frame is kept, and a warning is logged. Costs one extra capture and decode per round (well under a second)
+
+
 # [16.1.0] - 2026-01-11
 
 For a full list of changes see [Full list of changes](https://github.com/jomjol/AI-on-the-edge-device/compare/v16.0.0...v16.1.0)

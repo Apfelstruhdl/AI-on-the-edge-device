@@ -94,6 +94,16 @@ void psram_free_shared_stbi_memory(void *p) {
 }
 
 
+/** The STBI part of the shared region is a bump allocator: freeing does not make space for the next
+ * decode. Rewind it so that several frames can be decoded one after another within the 'Take Image'
+ * step. Only call this once every STBI buffer allocated so far has been freed. */
+void psram_reset_shared_stbi_memory(void) {
+    if (sharedMemoryInUseFor == "TakeImage") {
+        allocatedBytesForSTBI = 0;
+    }
+}
+
+
 
 /*******************************************************************
  * Memory used in Aligning Step 

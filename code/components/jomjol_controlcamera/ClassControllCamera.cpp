@@ -9,6 +9,8 @@
 #include "Helper.h"
 #include "statusled.h"
 #include "CImageBasis.h"
+#include "FrameConsistency.h"
+#include "psram.h"
 
 #include "server_ota.h"
 #include "server_GPIO.h"
@@ -630,7 +632,137 @@ static size_t jpg_encode_stream(void *arg, size_t index, const void *data, size_
     return len;
 }
 
-esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
+static std::string formatBandChange(float value)
+{
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.2f", value);
+    return std::string(buf);
+}
+
+// Copy a decoded camera frame into the target image (both CCstatus.ImageWidth x ImageHeight, RGB)
+static void copyFrame(CImageBasis *_source, CImageBasis *_target)
+{
+    stbi_uc *p_target;
+    stbi_uc *p_source;
+    int channels = 3;
+    int width = CCstatus.ImageWidth;
+    int height = CCstatus.ImageHeight;
+
+    for (int x = 0; x < width; ++x)
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            p_target = _target->rgb_image + (channels * (y * width + x));
+            p_source = _source->rgb_image + (channels * (y * width + x));
+
+            for (int c = 0; c < channels; c++)
+            {
+                p_target[c] = p_source[c];
+            }
+        }
+    }
+}
+
+// Grab and decode one more frame and fingerprint it. If _keep is given, the decoded frame is handed
+// over (the caller deletes it), otherwise it is freed right away.
+static bool captureFrameFingerprint(FrameFingerprint *_fp, CImageBasis **_keep)
+{
+    // The decoder's large buffers come from a bump allocator in the shared PSRAM region (see psram.cpp)
+    // and every frame decoded before this call has been deleted, so its space can be reused.
+    psram_reset_shared_stbi_memory();
+
+    camera_fb_t *fb = esp_camera_fb_get();
+
+    if (!fb)
+    {
+        return false;
+    }
+
+    CImageBasis *frame = new CImageBasis("frameCheck");
+
+    if (frame)
+    {
+        frame->LoadFromMemory(fb->buf, fb->len);
+    }
+
+    esp_camera_fb_return(fb);
+
+    if (!frame)
+    {
+        return false;
+    }
+
+    *_fp = MakeFrameFingerprint(frame->rgb_image, frame->width, frame->height, frame->channels);
+
+    if (_keep)
+    {
+        *_keep = frame;
+    }
+    else
+    {
+        delete frame;
+    }
+
+    return true;
+}
+
+/* A marginal camera connection occasionally delivers a torn, truncated or banded frame that still
+ * decodes and can be read as a plausible but wrong value. Compare the captured frame with a second
+ * capture; if they disagree, a third capture decides which frame to keep (see FrameConsistency.h). */
+void CCamera::VerifyCapturedFrame(CImageBasis *_Image)
+{
+    FrameFingerprint fpFirst = MakeFrameFingerprint(_Image->rgb_image, _Image->width, _Image->height, _Image->channels);
+    FrameFingerprint fpSecond;
+
+    if (!captureFrameFingerprint(&fpSecond, NULL))
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Frame check: second capture failed, frame not verified");
+        return;
+    }
+
+    float changeFirstSecond = FrameBandChange(fpFirst, fpSecond);
+
+    if (changeFirstSecond <= FRAME_CONSISTENCY_MAX_BAND_CHANGE)
+    {
+        return; // the normal case: both captures agree
+    }
+
+    FrameFingerprint fpThird;
+    CImageBasis *third = NULL;
+
+    if (!captureFrameFingerprint(&fpThird, &third))
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Frame check: captures differ (band change " + formatBandChange(changeFirstSecond) +
+                                               ") and the third capture failed, keeping the first frame");
+        return;
+    }
+
+    float changeFirstThird = FrameBandChange(fpFirst, fpThird);
+    float changeSecondThird = FrameBandChange(fpSecond, fpThird);
+
+    if (changeSecondThird <= FRAME_CONSISTENCY_MAX_BAND_CHANGE)
+    {
+        copyFrame(third, _Image);
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Frame check: first capture was corrupted (band change " + formatBandChange(changeFirstSecond) +
+                                               "), using the third capture");
+    }
+    else if (changeFirstThird <= FRAME_CONSISTENCY_MAX_BAND_CHANGE)
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Frame check: second capture was corrupted (band change " + formatBandChange(changeFirstSecond) +
+                                               "), keeping the first frame");
+    }
+    else
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Frame check: no two of three captures agree (band change " + formatBandChange(changeFirstSecond) +
+                                               " / " + formatBandChange(changeFirstThird) + " / " + formatBandChange(changeSecondThird) +
+                                               "), keeping the first frame");
+    }
+
+    delete third;
+    psram_reset_shared_stbi_memory();
+}
+
+esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay, bool verifyFrame)
 {
 #ifdef DEBUG_DETAIL_ON
     LogFile.WriteHeapInfo("CaptureToBasisImage - Start");
@@ -691,6 +823,24 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
     LogFile.WriteHeapInfo("CaptureToBasisImage - After fb_get");
 #endif
 
+    if (_zwImage != NULL)
+    {
+#ifdef DEBUG_DETAIL_ON
+        std::string _zw = "Targetimage: " + std::to_string((int)_Image->rgb_image) + " Size: " + std::to_string(_Image->width) + ", " + std::to_string(_Image->height);
+        _zw = _zw + " _zwImage: " + std::to_string((int)_zwImage->rgb_image) + " Size: " + std::to_string(_zwImage->width) + ", " + std::to_string(_zwImage->height);
+        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, _zw);
+#endif
+
+        copyFrame(_zwImage, _Image);
+        delete _zwImage;
+
+        // Still under the same (flash) light: confirm the frame with further captures
+        if (verifyFrame && !CCstatus.DemoMode)
+        {
+            VerifyCapturedFrame(_Image);
+        }
+    }
+
     LEDOnOff(false); // Status-LED off
 
     if (delay > 0)
@@ -700,43 +850,6 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
 
     //    TickType_t xDelay = 1000 / portTICK_PERIOD_MS;
     //    vTaskDelay( xDelay );  // wait for power to recover
-
-#ifdef DEBUG_DETAIL_ON
-    LogFile.WriteHeapInfo("CaptureToBasisImage - After LoadFromMemory");
-#endif
-
-    if (_zwImage == NULL)
-    {
-        return ESP_OK;
-    }
-
-    stbi_uc *p_target;
-    stbi_uc *p_source;
-    int channels = 3;
-    int width = CCstatus.ImageWidth;
-    int height = CCstatus.ImageHeight;
-
-#ifdef DEBUG_DETAIL_ON
-    std::string _zw = "Targetimage: " + std::to_string((int)_Image->rgb_image) + " Size: " + std::to_string(_Image->width) + ", " + std::to_string(_Image->height);
-    _zw = _zw + " _zwImage: " + std::to_string((int)_zwImage->rgb_image) + " Size: " + std::to_string(_zwImage->width) + ", " + std::to_string(_zwImage->height);
-    LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, _zw);
-#endif
-
-    for (int x = 0; x < width; ++x)
-    {
-        for (int y = 0; y < height; ++y)
-        {
-            p_target = _Image->rgb_image + (channels * (y * width + x));
-            p_source = _zwImage->rgb_image + (channels * (y * width + x));
-
-            for (int c = 0; c < channels; c++)
-            {
-                p_target[c] = p_source[c];
-            }
-        }
-    }
-
-    delete _zwImage;
 
 #ifdef DEBUG_DETAIL_ON
     LogFile.WriteHeapInfo("CaptureToBasisImage - Done");
