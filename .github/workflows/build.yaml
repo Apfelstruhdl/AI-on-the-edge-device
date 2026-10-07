@@ -108,6 +108,16 @@ jobs:
         mkdir demo
         cp -r ./sd-card/demo/* ./demo/
 
+  test-frame-consistency:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build & run frame consistency host unit tests
+      run: |
+        cd code/test/host
+        g++ -std=c++11 -Wall -Wextra -I ../../components/jomjol_image_proc test_frame_consistency_host.cpp ../../components/jomjol_image_proc/FrameConsistency.cpp -o frame_consistency_test
+        ./frame_consistency_test
+
 #########################################################################################
 ## Host unit tests (post-processing reconciliation logic)
 #########################################################################################

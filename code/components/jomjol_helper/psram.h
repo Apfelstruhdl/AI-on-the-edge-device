@@ -14,6 +14,7 @@ void psram_deinit_shared_memory_for_take_image_step(void);
 void *psram_reserve_shared_stbi_memory(size_t size);
 void *psram_reallocate_shared_stbi_memory(void *ptr, size_t newsize);
 void psram_free_shared_stbi_memory(void *p);
+void psram_reset_shared_stbi_memory(void);
 
 
 /* Memory used in Aligning Step */

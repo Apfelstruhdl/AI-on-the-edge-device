@@ -41,7 +41,7 @@ void ClassFlowTakeImage::takePictureWithFlash(int flash_duration)
 
     ESP_LOGD(TAG, "flash_duration: %d", flash_duration);
 
-    Camera.CaptureToBasisImage(rawImage, flash_duration);
+    Camera.CaptureToBasisImage(rawImage, flash_duration, true); // verify the frame: the reading is taken from it
 
     time(&TimeImageTaken);
     localtime(&TimeImageTaken);
