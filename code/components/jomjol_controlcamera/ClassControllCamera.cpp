@@ -642,25 +642,13 @@ static std::string formatBandChange(float value)
 // Copy a decoded camera frame into the target image (both CCstatus.ImageWidth x ImageHeight, RGB)
 static void copyFrame(CImageBasis *_source, CImageBasis *_target)
 {
-    stbi_uc *p_target;
-    stbi_uc *p_source;
     int channels = 3;
     int width = CCstatus.ImageWidth;
     int height = CCstatus.ImageHeight;
 
-    for (int x = 0; x < width; ++x)
-    {
-        for (int y = 0; y < height; ++y)
-        {
-            p_target = _target->rgb_image + (channels * (y * width + x));
-            p_source = _source->rgb_image + (channels * (y * width + x));
-
-            for (int c = 0; c < channels; c++)
-            {
-                p_target[c] = p_source[c];
-            }
-        }
-    }
+    // Both images are packed RGB888 with the same dimensions: copy the whole frame at once
+    // (the former per-pixel, column-by-column loop took ~2 s on an ESP32-CAM)
+    memcpy(_target->rgb_image, _source->rgb_image, width * height * channels);
 }
 
 // Grab and decode one more frame and fingerprint it. If _keep is given, the decoded frame is handed
@@ -806,15 +794,15 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay, bool veri
         loadNextDemoImage(fb);
     }
 
-    CImageBasis *_zwImage = new CImageBasis("zwImage");
+    CImageBasis *tmpImage = new CImageBasis("tmpImage");
 
-    if (_zwImage)
+    if (tmpImage)
     {
-        _zwImage->LoadFromMemory(fb->buf, fb->len);
+        tmpImage->LoadFromMemory(fb->buf, fb->len);
     }
     else
     {
-        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "CaptureToBasisImage: Can't allocate _zwImage");
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "CaptureToBasisImage: Can't allocate tmpImage");
     }
 
     esp_camera_fb_return(fb);
@@ -823,16 +811,16 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay, bool veri
     LogFile.WriteHeapInfo("CaptureToBasisImage - After fb_get");
 #endif
 
-    if (_zwImage != NULL)
+    if (tmpImage != NULL)
     {
 #ifdef DEBUG_DETAIL_ON
         std::string _zw = "Targetimage: " + std::to_string((int)_Image->rgb_image) + " Size: " + std::to_string(_Image->width) + ", " + std::to_string(_Image->height);
-        _zw = _zw + " _zwImage: " + std::to_string((int)_zwImage->rgb_image) + " Size: " + std::to_string(_zwImage->width) + ", " + std::to_string(_zwImage->height);
+        _zw = _zw + " tmpImage: " + std::to_string((int)tmpImage->rgb_image) + " Size: " + std::to_string(tmpImage->width) + ", " + std::to_string(tmpImage->height);
         LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, _zw);
 #endif
 
-        copyFrame(_zwImage, _Image);
-        delete _zwImage;
+        copyFrame(tmpImage, _Image);
+        delete tmpImage;
 
         // Still under the same (flash) light: confirm the frame with further captures
         if (verifyFrame && !CCstatus.DemoMode)
@@ -1320,6 +1308,7 @@ void CCamera::useDemoMode(void)
     if (demoImage == NULL)
     {
         LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Unable to acquire required memory for demo image!");
+        fclose(fd);
         return;
     }
 
@@ -1368,6 +1357,7 @@ bool CCamera::loadNextDemoImage(camera_fb_t *fb)
         char buf[100];
         snprintf(buf, sizeof(buf), "Demo Image (%d bytes) is larger than provided buffer (%d bytes)!", (int)fileSize, DEMO_IMAGE_SIZE);
         LogFile.WriteToFile(ESP_LOG_ERROR, TAG, std::string(buf));
+        fclose(fp);
         return false;
     }
 
